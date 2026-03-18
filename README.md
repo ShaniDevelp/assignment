@@ -1,36 +1,40 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Fullstack Transcription Pipeline
+
+A robust, extensible transcription service built with Next.js that accepts audio files via an API route, standardizes formatting using FFmpeg, automatically chunks large files to bypass API limits, and returns accurate timestamp-level transcripts using the OpenAI Whisper model.
 
 ## Getting Started
 
 First, run the development server:
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) with your browser to upload and test audio files.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Environment Variables
+Configure your project by adding an `.env.local` to the root folder:
+```env
+OPENAI_API_KEY="sk-..."
+```
+If no key is configured, the application has a built-in `MockProvider` pattern that simulates processing and accurately reflects the exact formatting structure the real API provides.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## Technical Design Decisions
 
-To learn more about Next.js, take a look at the following resources:
+This application prioritizes **engineering resilience** over simplistic API wrappers. We're directly parsing unpredictable, raw files from end-users, thus requiring rigid defense layers.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+**1. Audio Format Normalization Strategy (FFmpeg)**
+Instead of relying on the transcription API to decipher potentially obscure or highly compressed user formats, we employ an explicit, immediate audio normalization step. Every uploaded file (whether `m4a`, `ogg`, or `mp3`) is piped through `fluent-ffmpeg` and converted strictly to a **16000Hz, 1 Channel (Mono) WAV file**. This strips structural bloat, guarantees the Whisper API receives the exact same optimized payload format every time, and reduces payload bandwidth dynamically.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+**2. Handling Long Files & Strict Size Limits**
+AI models usually impose strict input caps (e.g. OpenAI's 25MB file limit). Synchronously passing giant buffers can also cause immediate Vercel/Next.js function timeouts.
+If our normalized audio exceeds a set duration mathematically computed (e.g., 10 minutes), FFmpeg seamlessly segments the file into multiple 10-minute temporary `.wav` files. The backend synthesizes the final exact timestamps by injecting an offset logic (adding `10 mins` to all timestamps returned from chunk 2, `20 mins` to chunk 3) to stitch the text seamlessly back together for the user as if analyzed whole.
 
-## Deploy on Vercel
+**3. Separation of Concerns (Strategy Pattern)**
+The transcription logic itself is completely decoupled behind the `ITranscriptionProvider` interface. The `TranscriptionPipeline` only knows that it gives an audio file and expects a `TranscriptionResult` struct (with absolute timestamps). This allows us to swap, test, and mock the LLM engine instantly without rewriting core orchestration math.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
